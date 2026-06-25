@@ -47,12 +47,52 @@
             text-align: center;
             font-size: 1.2rem;
             font-weight: bold;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
         }
 
         .total-box span {
             color: var(--primary);
             font-size: 1.5rem;
+        }
+
+        /* Nova Secção de Categorias */
+        .categories-summary {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+
+        .categories-summary h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1rem;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .category-badge-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .category-sum-tag {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: flex;
+            gap: 6px;
+        }
+
+        .category-sum-tag .cat-val {
+            font-weight: bold;
+            color: var(--primary);
         }
 
         form {
@@ -115,7 +155,6 @@
             background-color: #15803d;
         }
 
-        /* Abas de Filtros de Período */
         .filter-tabs {
             display: flex;
             gap: 4px;
@@ -242,7 +281,12 @@
         Total <span id="totalPeriodLabel">Filtrado</span>: <span id="totalAmount">0.00 €</span>
     </div>
 
-    <!-- Formulário para adicionar/editar despesa -->
+    <div class="categories-summary">
+        <h3>Divisão por Categoria</h3>
+        <div id="categorySummaryList" class="category-badge-list">
+            </div>
+    </div>
+
     <form id="expenseForm">
         <input type="hidden" id="editIndex" value="-1">
         
@@ -294,7 +338,6 @@
 
     <h2>Histórico de Gastos</h2>
 
-    <!-- Filtros de Período -->
     <div class="filter-tabs">
         <button class="tab-btn" onclick="setPeriod('diario')" id="tab-diario">Diário</button>
         <button class="tab-btn" onclick="setPeriod('semanal')" id="tab-semanal">Semanal</button>
@@ -311,12 +354,13 @@
     const expenseList = document.getElementById('expenseList');
     const totalAmountSpan = document.getElementById('totalAmount');
     const totalPeriodLabel = document.getElementById('totalPeriodLabel');
+    const categorySummaryList = document.getElementById('categorySummaryList');
     const expenseDateInput = document.getElementById('expenseDate');
     const submitBtn = document.getElementById('submitBtn');
     const editIndexInput = document.getElementById('editIndex');
 
     let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
-    let currentPeriod = 'sempre'; // Período ativo por defeito
+    let currentPeriod = 'sempre';
 
     function setCurrentDateTime() {
         const now = new Date();
@@ -339,12 +383,10 @@
         return `${day}/${month}/${year} às ${hours}:${minutes}`;
     }
 
-    // Função auxiliar para verificar se uma data pertence à mesma semana que outra
     function isSameWeek(date1, date2) {
         const d1 = new Date(date1);
         const d2 = new Date(date2);
         
-        // Ajustar para o início da semana (Segunda-feira)
         const day1 = d1.getDay(), diff1 = d1.getDate() - day1 + (day1 === 0 ? -6 : 1);
         const monday1 = new Date(d1.setDate(diff1)).setHours(0,0,0,0);
         
@@ -357,11 +399,9 @@
     function setPeriod(period) {
         currentPeriod = period;
         
-        // Atualizar as classes ativas dos botões
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`tab-${period}`).classList.add('active');
         
-        // Atualizar o texto da caixa de totais
         const labels = {
             'diario': 'Gasto Hoje',
             'semanal': 'Gasto esta Semana',
@@ -376,13 +416,15 @@
 
     function updateUI() {
         expenseList.innerHTML = '';
+        categorySummaryList.innerHTML = '';
         const now = new Date();
         let total = 0;
+        
+        // Objeto temporário para guardar a soma de cada categoria
+        const categoryTotals = {};
 
-        // Mapear com o index original para a edição/eliminação funcionarem corretamente
         const mappedExpenses = expenses.map((exp, originalIndex) => ({...exp, originalIndex}));
 
-        // Filtrar com base no período selecionado
         const filteredExpenses = mappedExpenses.filter(expense => {
             const expDate = new Date(expense.date);
             
@@ -401,17 +443,23 @@
             }
         });
 
-        // Ordenar as despesas filtradas (mais recentes primeiro)
         filteredExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         if (filteredExpenses.length === 0) {
             expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa neste período.</li>';
+            categorySummaryList.innerHTML = '<span style="color: #64748b; font-style: italic; font-size: 0.9rem;">Sem dados para agrupar.</span>';
             totalAmountSpan.textContent = '0.00 €';
             return;
         }
 
         filteredExpenses.forEach((expense) => {
             total += expense.amount;
+
+            // Somar valor à categoria correspondente
+            if (!categoryTotals[expense.category]) {
+                categoryTotals[expense.category] = 0;
+            }
+            categoryTotals[expense.category] += expense.amount;
 
             const li = document.createElement('li');
             li.className = 'expense-item';
@@ -429,6 +477,16 @@
             `;
             expenseList.appendChild(li);
         });
+
+        // Atualizar o bloco com o somatório das categorias (ordenado por valor mais alto)
+        Object.keys(categoryTotals)
+            .sort((a, b) => categoryTotals[b] - categoryTotals[a])
+            .forEach(cat => {
+                const tag = document.createElement('span');
+                tag.className = 'category-sum-tag';
+                tag.innerHTML = `${cat}: <span class="cat-val">${categoryTotals[cat].toFixed(2)} €</span>`;
+                categorySummaryList.appendChild(tag);
+            });
 
         totalAmountSpan.textContent = `${total.toFixed(2)} €`;
     }
@@ -495,7 +553,7 @@
 
     // Inicialização
     setCurrentDateTime();
-    setPeriod('sempre'); // Começa a mostrar tudo por defeito
+    setPeriod('sempre');
 </script>
 
 </body>
