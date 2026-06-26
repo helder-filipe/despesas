@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registo de Despesas Diárias (Gráficos & Google Sheets)</title>
+    <title>Registo de Despesas Diárias (Painel Avançado)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -56,12 +56,31 @@
             font-size: 1.5rem;
         }
 
+        /* Menu de filtro interno do gráfico */
+        .chart-filter-zone {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .chart-filter-zone select {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+        }
+
         .chart-container {
             position: relative;
-            margin: 20px auto;
+            margin: 10px auto 20px auto;
             height: 260px;
             width: 100%;
-            max-width: 500px;
+            max-width: 550px;
         }
 
         .categories-summary {
@@ -252,7 +271,14 @@
         Total <span id="totalPeriodLabel">Acumulado</span>: <span id="totalAmount">0.00 €</span>
     </div>
 
-    <div class="chart-container" id="chartWrapper">
+    <div class="chart-filter-zone" id="chartFilterZone" style="display: none;">
+        <label for="chartCategorySelect">Visualizar no Gráfico:</label>
+        <select id="chartCategorySelect" onchange="updateUI()">
+            <option value="TOTAL_GERAL">Evolução de Gastos Totais</option>
+            </select>
+    </div>
+
+    <div class="chart-container">
         <canvas id="expenseChart"></canvas>
     </div>
 
@@ -329,25 +355,27 @@
     const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby_6Z1pNEw5_aZk7u6-r0rJx0YkwtREUyLBXrX9SaQcPU3oocu7cP14VVqFAQY-0oR7/exec';
     // =========================================================
 
+    const categoriesList = ["Automóvel", "Bar", "Combustível", "Desporto", "Ginásio", "Jornais/ revistas", "Lazer", "Livros", "Mota", "Pastelaria", "Refeições", "Roupa", "Saúde", "Serviços/ compras online", "Supermercado", "Telemóvel", "Viagens/ transporte", "Outros"];
+
     const categoryColors = {
-        "Automóvel": { bg: "#fee2e2", text: "#991b1b" },
-        "Bar": { bg: "#ffedd5", text: "#9a3412" },
-        "Combustível": { bg: "#fef9c3", text: "#854d0e" },
-        "Desporto": { bg: "#dcfce7", text: "#166534" },
-        "Ginásio": { bg: "#ccfbf1", text: "#115e59" },
-        "Jornais/ revistas": { bg: "#e0f2fe", text: "#0369a1" },
-        "Lazer": { bg: "#e0e7ff", text: "#3730a3" },
-        "Livros": { bg: "#f3e8ff", text: "#6b21a8" },
-        "Mota": { bg: "#fae8ff", text: "#86198f" },
-        "Pastelaria": { bg: "#fce7f3", text: "#9d174d" },
-        "Refeições": { bg: "#ffe4e6", text: "#9f1239" },
-        "Roupa": { bg: "#ffedd5", text: "#7c2d12" },
-        "Saúde": { bg: "#d1fae5", text: "#065f46" },
-        "Serviços/ compras online": { bg: "#f1f5f9", text: "#334155" },
-        "Supermercado": { bg: "#ecfdf5", text: "#047857" },
-        "Telemóvel": { bg: "#fff7ed", text: "#c2410c" },
-        "Viagens/ transporte": { bg: "#eff6ff", text: "#1e40af" },
-        "Outros": { bg: "#e2e8f0", text: "#475569" }
+        "Automóvel": { bg: "#fee2e2", text: "#991b1b", hex: "#ef4444" },
+        "Bar": { bg: "#ffedd5", text: "#9a3412", hex: "#f97316" },
+        "Combustível": { bg: "#fef9c3", text: "#854d0e", hex: "#eab308" },
+        "Desporto": { bg: "#dcfce7", text: "#166534", hex: "#22c55e" },
+        "Ginásio": { bg: "#ccfbf1", text: "#115e59", hex: "#14b8a6" },
+        "Jornais/ revistas": { bg: "#e0f2fe", text: "#0369a1", hex: "#0ea5e9" },
+        "Lazer": { bg: "#e0e7ff", text: "#3730a3", hex: "#6366f1" },
+        "Livros": { bg: "#f3e8ff", text: "#6b21a8", hex: "#a855f7" },
+        "Mota": { bg: "#fae8ff", text: "#86198f" , hex: "#d946ef"},
+        "Pastelaria": { bg: "#fce7f3", text: "#9d174d", hex: "#ec4899" },
+        "Refeições": { bg: "#ffe4e6", text: "#9f1239", hex: "#f43f5e" },
+        "Roupa": { bg: "#ffedd5", text: "#7c2d12", hex: "#c2410c" },
+        "Saúde": { bg: "#d1fae5", text: "#065f46", hex: "#10b981" },
+        "Serviços/ compras online": { bg: "#f1f5f9", text: "#334155", hex: "#64748b" },
+        "Supermercado": { bg: "#ecfdf5", text: "#047857", hex: "#059669" },
+        "Telemóvel": { bg: "#fff7ed", text: "#c2410c", hex: "#ea580c" },
+        "Viagens/ transporte": { bg: "#eff6ff", text: "#1e40af", hex: "#3b82f6" },
+        "Outros": { bg: "#e2e8f0", text: "#475569", hex: "#94a3b8" }
     };
 
     const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -361,19 +389,26 @@
     const submitBtn = document.getElementById('submitBtn');
     const summaryTitle = document.getElementById('summaryTitle');
     const historyTitle = document.getElementById('historyTitle');
+    const chartFilterZone = document.getElementById('chartFilterZone');
+    const chartCategorySelect = document.getElementById('chartCategorySelect');
 
     let expenses = [];
     let currentPeriod = 'sempre';
-    let myChart = null; // Variável global para controlar o gráfico
+    let myChart = null;
 
     function setCurrentDateTime() {
         const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const hours = String(now.getHours()).padStart(2, '0');
-        const minutes = String(now.getMinutes()).padStart(2, '0');
-        expenseDateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+        expenseDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+
+    // Inicializar o seletor interno do gráfico com as categorias existentes
+    function initChartFilterOptions() {
+        categoriesList.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = `Apenas Categoria: ${cat}`;
+            chartCategorySelect.appendChild(opt);
+        });
     }
 
     function loadDataFromSheets() {
@@ -410,22 +445,22 @@
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         document.getElementById(`tab-${period}`).classList.add('active');
         
+        // Resetar o seletor do gráfico ao mudar de aba principal
+        chartCategorySelect.value = "TOTAL_GERAL";
+
         const labels = {
             'diario': 'Gasto Hoje',
             'semanal': 'Gasto esta Semana',
-            'mensal': 'Gasto este Ano (por Mês)',
-            'anual': 'Histórico Total (por Ano)',
+            'mensal': 'Gasto este Ano',
+            'anual': 'Histórico Total',
             'sempre': 'Acumulado Geral'
         };
         totalPeriodLabel.textContent = labels[period];
         updateUI();
     }
 
-    // Função para renderizar/destruir o gráfico dinamicamente
-    function renderChart(type, labels, data, colors) {
-        if (myChart) {
-            myChart.destroy(); // Destrói o gráfico anterior para não sobrepor
-        }
+    function renderChart(type, labels, data, chartTitle, colorHex) {
+        if (myChart) myChart.destroy();
         
         const ctx = document.getElementById('expenseChart').getContext('2d');
         myChart = new Chart(ctx, {
@@ -433,8 +468,9 @@
             data: {
                 labels: labels,
                 datasets: [{
+                    label: chartTitle,
                     data: data,
-                    backgroundColor: colors,
+                    backgroundColor: colorHex,
                     borderWidth: 1,
                     borderColor: '#cbd5e1'
                 }]
@@ -456,28 +492,35 @@
         const now = new Date();
         const currentYear = now.getFullYear();
         let totalGeral = 0;
+        
+        const selectedChartCat = chartCategorySelect.value;
 
-        // Repor títulos padrão
-        summaryTitle.textContent = "Divisão por Categoria";
-        historyTitle.textContent = "Histórico de Gastos";
+        // Mostrar barra de filtro de categoria apenas em Mensal e Anual
+        if (currentPeriod === 'mensal' || currentPeriod === 'anual') {
+            chartFilterZone.style.display = 'flex';
+        } else {
+            chartFilterZone.style.display = 'none';
+        }
 
-        // MODO MENSAL (Agrupado por Meses do Ano Corrente)
+        // ================= MODO MENSAL =================
         if (currentPeriod === 'mensal') {
-            summaryTitle.textContent = "Resumo Mensal";
-            historyTitle.textContent = "Todos os Registos deste Ano";
+            summaryTitle.textContent = "Resumo por Mês (Ano Atual)";
+            historyTitle.textContent = "Todos os Registos de " + currentYear;
             
             const monthlyTotals = Array(12).fill(0);
-            
-            // Filtrar despesas apenas do ano corrente
             const currentYearExpenses = expenses.filter(exp => new Date(exp.date).getFullYear() === currentYear);
             
             currentYearExpenses.forEach(exp => {
-                const m = new Date(exp.date).getMonth();
-                monthlyTotals[m] += exp.amount;
                 totalGeral += exp.amount;
+                
+                // Se estiver em modo "Total" OU na categoria específica selecionada
+                if (selectedChartCat === "TOTAL_GERAL" || exp.category === selectedChartCat) {
+                    const m = new Date(exp.date).getMonth();
+                    monthlyTotals[m] += exp.amount;
+                }
             });
 
-            // Gerar badges dos meses
+            // Gerar badges informativas por mês
             monthNames.forEach((month, index) => {
                 if (monthlyTotals[index] > 0) {
                     const tag = document.createElement('span');
@@ -489,7 +532,7 @@
                 }
             });
 
-            // Listagem cronológica dos registos do ano
+            // Listar registos no ecrã
             currentYearExpenses.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
                 const li = document.createElement('li');
                 li.className = 'expense-item';
@@ -497,36 +540,44 @@
                 expenseList.appendChild(li);
             });
 
-            totalAmountSpan.textContent = `${totalGeral.toFixed(2)} € (Ano ${currentYear})`;
-            renderChart('bar', monthNames, monthlyTotals, '#3b82f6');
+            totalAmountSpan.textContent = `${totalGeral.toFixed(2)} € (Total ${currentYear})`;
+            
+            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos Totais" : `Gastos em ${selectedChartCat}`;
+            const chartColor = selectedChartCat === "TOTAL_GERAL" ? "#3b82f6" : (categoryColors[selectedChartCat]?.hex || "#3b82f6");
+            renderChart('bar', monthNames, monthlyTotals, chartLabelText, chartColor);
             return;
         }
 
-        // MODO ANUAL (Agrupado por Anos)
+        // ================= MODO ANUAL =================
         if (currentPeriod === 'anual') {
-            summaryTitle.textContent = "Resumo Anual";
+            summaryTitle.textContent = "Resumo por Anos";
+            historyTitle.textContent = "Histórico Completo de Registos";
             
             const yearlyTotals = {};
             expenses.forEach(exp => {
+                totalGeral += exp.amount;
                 const y = new Date(exp.date).getFullYear();
                 if(!isNaN(y)) {
-                    yearlyTotals[y] = (yearlyTotals[y] || 0) + exp.amount;
-                    totalGeral += exp.amount;
+                    if (!yearlyTotals[y]) yearlyTotals[y] = 0;
+                    if (selectedChartCat === "TOTAL_GERAL" || exp.category === selectedChartCat) {
+                        yearlyTotals[y] += exp.amount;
+                    }
                 }
             });
 
-            const sortedYears = Object.keys(yearlyTotals).sort((a,b) => b - a);
+            const sortedYears = Object.keys(yearlyTotals).sort();
 
             sortedYears.forEach(year => {
-                const tag = document.createElement('span');
-                tag.className = 'category-sum-tag';
-                tag.style.backgroundColor = "#f0fdf4";
-                tag.style.color = "#166534";
-                tag.innerHTML = `Ano ${year}: <b>${yearlyTotals[year].toFixed(2)} €</b>`;
-                categorySummaryList.appendChild(tag);
+                if (yearlyTotals[year] > 0) {
+                    const tag = document.createElement('span');
+                    tag.className = 'category-sum-tag';
+                    tag.style.backgroundColor = "#f0fdf4";
+                    tag.style.color = "#166534";
+                    tag.innerHTML = `Ano ${year}: <b>${yearlyTotals[year].toFixed(2)} €</b>`;
+                    categorySummaryList.appendChild(tag);
+                }
             });
 
-            // Listagem de tudo
             expenses.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
                 const li = document.createElement('li');
                 li.className = 'expense-item';
@@ -535,12 +586,17 @@
             });
 
             totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
-            renderChart('bar', Object.keys(yearlyTotals).sort(), Object.values(yearlyTotals), '#10b981');
+            
+            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos Totais" : `Gastos em ${selectedChartCat}`;
+            const chartColor = selectedChartCat === "TOTAL_GERAL" ? "#10b981" : (categoryColors[selectedChartCat]?.hex || "#10b981");
+            renderChart('bar', sortedYears, sortedYears.map(y => yearlyTotals[y]), chartLabelText, chartColor);
             return;
         }
 
-        // MODOS PADRÃO (Diário, Semanal, Sempre) - Agrupamento por Categoria com Gráfico Circular
+        // ================= MODOS DIÁRIO, SEMANAL E SEMPRE =================
+        summaryTitle.textContent = "Divisão por Categoria";
         const categoryTotals = {};
+        
         const filteredExpenses = expenses.filter(expense => {
             const expDate = new Date(expense.date);
             if (isNaN(expDate)) return true;
@@ -593,7 +649,7 @@
         });
 
         totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
-        renderChart('doughnut', chartLabels, chartData, chartColors);
+        renderChart('doughnut', chartLabels, chartData, "Categorias", chartColors);
     }
 
     expenseForm.addEventListener('submit', function(e) {
@@ -635,6 +691,7 @@
 
     // Inicialização
     setCurrentDateTime();
+    initChartFilterOptions();
     loadDataFromSheets();
 </script>
 
