@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registo de Despesas Diárias (Google Sheets Sync)</title>
+    <title>Registo de Despesas Diárias (Gráficos & Google Sheets)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --primary: #2563eb;
@@ -26,7 +27,7 @@
 
         .container {
             width: 100%;
-            max-width: 650px;
+            max-width: 700px;
             background: var(--surface);
             padding: 24px;
             border-radius: 12px;
@@ -53,6 +54,14 @@
         .total-box span {
             color: var(--primary);
             font-size: 1.5rem;
+        }
+
+        .chart-container {
+            position: relative;
+            margin: 20px auto;
+            height: 260px;
+            width: 100%;
+            max-width: 500px;
         }
 
         .categories-summary {
@@ -243,8 +252,12 @@
         Total <span id="totalPeriodLabel">Acumulado</span>: <span id="totalAmount">0.00 €</span>
     </div>
 
+    <div class="chart-container" id="chartWrapper">
+        <canvas id="expenseChart"></canvas>
+    </div>
+
     <div class="categories-summary">
-        <h3>Divisão por Categoria</h3>
+        <h3 id="summaryTitle">Divisão por Categoria</h3>
         <div id="categorySummaryList" class="category-badge-list"></div>
     </div>
 
@@ -295,7 +308,7 @@
         <button type="submit" id="submitBtn">Adicionar e Sincronizar</button>
     </form>
 
-    <h2>Histórico (Do Google Sheets)</h2>
+    <h2 id="historyTitle">Histórico (Do Google Sheets)</h2>
 
     <div class="filter-tabs">
         <button class="tab-btn" onclick="setPeriod('diario')" id="tab-diario">Diário</button>
@@ -316,27 +329,28 @@
     const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby_6Z1pNEw5_aZk7u6-r0rJx0YkwtREUyLBXrX9SaQcPU3oocu7cP14VVqFAQY-0oR7/exec';
     // =========================================================
 
-    // Dicionário de cores exclusivo para cada categoria (Fundo e Texto)
     const categoryColors = {
-        "Automóvel": { bg: "#fee2e2", text: "#991b1b" }, // Vermelho suave
-        "Bar": { bg: "#ffedd5", text: "#9a3412" },       // Laranja
-        "Combustível": { bg: "#fef9c3", text: "#854d0e" }, // Amarelo
-        "Desporto": { bg: "#dcfce7", text: "#166534" },    // Verde
-        "Ginásio": { bg: "#ccfbf1", text: "#115e59" },     // Teal
-        "Jornais/ revistas": { bg: "#e0f2fe", text: "#0369a1" }, // Azul Claro
-        "Lazer": { bg: "#e0e7ff", text: "#3730a3" },      // Índigo
-        "Livros": { bg: "#f3e8ff", text: "#6b21a8" },     // Roxo
-        "Mota": { bg: "#fae8ff", text: "#86198f" },       // Magenta
-        "Pastelaria": { bg: "#fce7f3", text: "#9d174d" },  // Rosa
-        "Refeições": { bg: "#ffe4e6", text: "#9f1239" },   // Rosa Forte
-        "Roupa": { bg: "#ffedd5", text: "#7c2d12" },       // Terracota
-        "Saúde": { bg: "#d1fae5", text: "#065f46" },       // Esmeralda
-        "Serviços/ compras online": { bg: "#f1f5f9", text: "#334155" }, // Cinza Ardósia
-        "Supermercado": { bg: "#ecfdf5", text: "#047857" }, // Verde Menta
-        "Telemóvel": { bg: "#fff7ed", text: "#c2410c" },   // Laranja Escuro
-        "Viagens/ transporte": { bg: "#eff6ff", text: "#1e40af" }, // Azul Real
-        "Outros": { bg: "#e2e8f0", text: "#475569" }       // Cinza Neutro
+        "Automóvel": { bg: "#fee2e2", text: "#991b1b" },
+        "Bar": { bg: "#ffedd5", text: "#9a3412" },
+        "Combustível": { bg: "#fef9c3", text: "#854d0e" },
+        "Desporto": { bg: "#dcfce7", text: "#166534" },
+        "Ginásio": { bg: "#ccfbf1", text: "#115e59" },
+        "Jornais/ revistas": { bg: "#e0f2fe", text: "#0369a1" },
+        "Lazer": { bg: "#e0e7ff", text: "#3730a3" },
+        "Livros": { bg: "#f3e8ff", text: "#6b21a8" },
+        "Mota": { bg: "#fae8ff", text: "#86198f" },
+        "Pastelaria": { bg: "#fce7f3", text: "#9d174d" },
+        "Refeições": { bg: "#ffe4e6", text: "#9f1239" },
+        "Roupa": { bg: "#ffedd5", text: "#7c2d12" },
+        "Saúde": { bg: "#d1fae5", text: "#065f46" },
+        "Serviços/ compras online": { bg: "#f1f5f9", text: "#334155" },
+        "Supermercado": { bg: "#ecfdf5", text: "#047857" },
+        "Telemóvel": { bg: "#fff7ed", text: "#c2410c" },
+        "Viagens/ transporte": { bg: "#eff6ff", text: "#1e40af" },
+        "Outros": { bg: "#e2e8f0", text: "#475569" }
     };
+
+    const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
     const expenseForm = document.getElementById('expenseForm');
     const expenseList = document.getElementById('expenseList');
@@ -345,9 +359,12 @@
     const categorySummaryList = document.getElementById('categorySummaryList');
     const expenseDateInput = document.getElementById('expenseDate');
     const submitBtn = document.getElementById('submitBtn');
+    const summaryTitle = document.getElementById('summaryTitle');
+    const historyTitle = document.getElementById('historyTitle');
 
-    let expenses = []; // Agora começa vazio e carrega do Sheets
+    let expenses = [];
     let currentPeriod = 'sempre';
+    let myChart = null; // Variável global para controlar o gráfico
 
     function setCurrentDateTime() {
         const now = new Date();
@@ -359,7 +376,6 @@
         expenseDateInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
     }
 
-    // Carrega os dados reais do Google Sheets (através do doGet)
     function loadDataFromSheets() {
         fetch(GOOGLE_SCRIPT_URL)
         .then(response => response.json())
@@ -368,20 +384,15 @@
             updateUI();
         })
         .catch(err => {
-            console.error("Erro ao ler do Sheets:", err);
-            expenseList.innerHTML = '<li class="no-expenses" style="color:red;">Não foi possível carregar os dados do Google Sheets.</li>';
+            console.error(err);
+            expenseList.innerHTML = '<li class="no-expenses" style="color:red;">Não foi possível carregar os dados.</li>';
         });
     }
 
     function formatDatePT(dateTimeString) {
         const date = new Date(dateTimeString);
         if (isNaN(date)) return dateTimeString;
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        return `${day}/${month}/${year} às ${hours}:${minutes}`;
+        return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()} às ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     }
 
     function isSameWeek(date1, date2) {
@@ -402,30 +413,140 @@
         const labels = {
             'diario': 'Gasto Hoje',
             'semanal': 'Gasto esta Semana',
-            'mensal': 'Gasto este Mês',
-            'anual': 'Gasto este Ano',
-            'sempre': 'Acumulado (Sempre)'
+            'mensal': 'Gasto este Ano (por Mês)',
+            'anual': 'Histórico Total (por Ano)',
+            'sempre': 'Acumulado Geral'
         };
         totalPeriodLabel.textContent = labels[period];
         updateUI();
+    }
+
+    // Função para renderizar/destruir o gráfico dinamicamente
+    function renderChart(type, labels, data, colors) {
+        if (myChart) {
+            myChart.destroy(); // Destrói o gráfico anterior para não sobrepor
+        }
+        
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: type,
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colors,
+                    borderWidth: 1,
+                    borderColor: '#cbd5e1'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: type === 'doughnut', position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+                },
+                scales: type === 'bar' ? { y: { beginAtZero: true, ticks: { callback: value => value + ' €' } } } : {}
+            }
+        });
     }
 
     function updateUI() {
         expenseList.innerHTML = '';
         categorySummaryList.innerHTML = '';
         const now = new Date();
-        let total = 0;
-        const categoryTotals = {};
+        const currentYear = now.getFullYear();
+        let totalGeral = 0;
 
+        // Repor títulos padrão
+        summaryTitle.textContent = "Divisão por Categoria";
+        historyTitle.textContent = "Histórico de Gastos";
+
+        // MODO MENSAL (Agrupado por Meses do Ano Corrente)
+        if (currentPeriod === 'mensal') {
+            summaryTitle.textContent = "Resumo Mensal";
+            historyTitle.textContent = "Todos os Registos deste Ano";
+            
+            const monthlyTotals = Array(12).fill(0);
+            
+            // Filtrar despesas apenas do ano corrente
+            const currentYearExpenses = expenses.filter(exp => new Date(exp.date).getFullYear() === currentYear);
+            
+            currentYearExpenses.forEach(exp => {
+                const m = new Date(exp.date).getMonth();
+                monthlyTotals[m] += exp.amount;
+                totalGeral += exp.amount;
+            });
+
+            // Gerar badges dos meses
+            monthNames.forEach((month, index) => {
+                if (monthlyTotals[index] > 0) {
+                    const tag = document.createElement('span');
+                    tag.className = 'category-sum-tag';
+                    tag.style.backgroundColor = "#eff6ff";
+                    tag.style.color = "#1e40af";
+                    tag.innerHTML = `${month}: <b>${monthlyTotals[index].toFixed(2)} €</b>`;
+                    categorySummaryList.appendChild(tag);
+                }
+            });
+
+            // Listagem cronológica dos registos do ano
+            currentYearExpenses.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
+                const li = document.createElement('li');
+                li.className = 'expense-item';
+                li.innerHTML = `<div class="expense-info"><strong>${exp.description}</strong><span class="expense-date">${formatDatePT(exp.date)}</span><span class="expense-category" style="background:${categoryColors[exp.category]?.bg || '#e2e8f0'}">${exp.category}</span></div><div><span style="font-weight:bold;">${exp.amount.toFixed(2)} €</span></div>`;
+                expenseList.appendChild(li);
+            });
+
+            totalAmountSpan.textContent = `${totalGeral.toFixed(2)} € (Ano ${currentYear})`;
+            renderChart('bar', monthNames, monthlyTotals, '#3b82f6');
+            return;
+        }
+
+        // MODO ANUAL (Agrupado por Anos)
+        if (currentPeriod === 'anual') {
+            summaryTitle.textContent = "Resumo Anual";
+            
+            const yearlyTotals = {};
+            expenses.forEach(exp => {
+                const y = new Date(exp.date).getFullYear();
+                if(!isNaN(y)) {
+                    yearlyTotals[y] = (yearlyTotals[y] || 0) + exp.amount;
+                    totalGeral += exp.amount;
+                }
+            });
+
+            const sortedYears = Object.keys(yearlyTotals).sort((a,b) => b - a);
+
+            sortedYears.forEach(year => {
+                const tag = document.createElement('span');
+                tag.className = 'category-sum-tag';
+                tag.style.backgroundColor = "#f0fdf4";
+                tag.style.color = "#166534";
+                tag.innerHTML = `Ano ${year}: <b>${yearlyTotals[year].toFixed(2)} €</b>`;
+                categorySummaryList.appendChild(tag);
+            });
+
+            // Listagem de tudo
+            expenses.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
+                const li = document.createElement('li');
+                li.className = 'expense-item';
+                li.innerHTML = `<div class="expense-info"><strong>${exp.description}</strong><span class="expense-date">${formatDatePT(exp.date)}</span><span class="expense-category" style="background:${categoryColors[exp.category]?.bg || '#e2e8f0'}">${exp.category}</span></div><div><span style="font-weight:bold;">${exp.amount.toFixed(2)} €</span></div>`;
+                expenseList.appendChild(li);
+            });
+
+            totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
+            renderChart('bar', Object.keys(yearlyTotals).sort(), Object.values(yearlyTotals), '#10b981');
+            return;
+        }
+
+        // MODOS PADRÃO (Diário, Semanal, Sempre) - Agrupamento por Categoria com Gráfico Circular
+        const categoryTotals = {};
         const filteredExpenses = expenses.filter(expense => {
             const expDate = new Date(expense.date);
             if (isNaN(expDate)) return true;
-            
             switch (currentPeriod) {
                 case 'diario': return expDate.toDateString() === now.toDateString();
                 case 'semanal': return isSameWeek(expDate, now);
-                case 'mensal': return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
-                case 'anual': return expDate.getFullYear() === now.getFullYear();
                 case 'sempre': default: return true;
             }
         });
@@ -436,48 +557,47 @@
             expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa registada neste período.</li>';
             categorySummaryList.innerHTML = '<span style="color: #64748b; font-style: italic; font-size: 0.9rem;">Sem dados.</span>';
             totalAmountSpan.textContent = '0.00 €';
+            if(myChart) myChart.destroy();
             return;
         }
 
         filteredExpenses.forEach((expense) => {
-            total += expense.amount;
+            totalGeral += expense.amount;
             if (!categoryTotals[expense.category]) categoryTotals[expense.category] = 0;
             categoryTotals[expense.category] += expense.amount;
 
-            // Obter cores personalizadas da categoria
             const colors = categoryColors[expense.category] || categoryColors["Outros"];
-
             const li = document.createElement('li');
             li.className = 'expense-item';
-            li.innerHTML = `
-                <div class="expense-info">
-                    <strong>${expense.description}</strong>
-                    <span class="expense-date">${formatDatePT(expense.date)}</span>
-                    <span class="expense-category" style="background-color: ${colors.bg}; color: ${colors.text};">${expense.category}</span>
-                </div>
-                <div>
-                    <span style="font-weight: bold; margin-right: 8px; color: ${colors.text};">${expense.amount.toFixed(2)} €</span>
-                </div>
-            `;
+            li.innerHTML = `<div class="expense-info"><strong>${expense.description}</strong><span class="expense-date">${formatDatePT(expense.date)}</span><span class="expense-category" style="background-color: ${colors.bg}; color: ${colors.text};">${expense.category}</span></div><div><span style="font-weight: bold; color: ${colors.text};">${expense.amount.toFixed(2)} €</span></div>`;
             expenseList.appendChild(li);
         });
 
-        Object.keys(categoryTotals).sort((a, b) => categoryTotals[b] - categoryTotals[a]).forEach(cat => {
+        const sortedCats = Object.keys(categoryTotals).sort((a, b) => categoryTotals[b] - categoryTotals[a]);
+        const chartLabels = [];
+        const chartData = [];
+        const chartColors = [];
+
+        sortedCats.forEach(cat => {
             const colors = categoryColors[cat] || categoryColors["Outros"];
             const tag = document.createElement('span');
             tag.className = 'category-sum-tag';
             tag.style.backgroundColor = colors.bg;
             tag.style.color = colors.text;
-            tag.innerHTML = `${cat}: <span style="font-weight: 8px; margin-left:4px;">${categoryTotals[cat].toFixed(2)} €</span>`;
+            tag.innerHTML = `${cat}: <span style="font-weight: bold; margin-left:4px;">${categoryTotals[cat].toFixed(2)} €</span>`;
             categorySummaryList.appendChild(tag);
+
+            chartLabels.push(cat);
+            chartData.push(categoryTotals[cat]);
+            chartColors.push(colors.bg);
         });
 
-        totalAmountSpan.textContent = `${total.toFixed(2)} €`;
+        totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
+        renderChart('doughnut', chartLabels, chartData, chartColors);
     }
 
     expenseForm.addEventListener('submit', function(e) {
         e.preventDefault();
-
         const description = document.getElementById('description').value;
         const amount = parseFloat(document.getElementById('amount').value);
         const date = document.getElementById('expenseDate').value;
@@ -501,7 +621,6 @@
         .then(() => {
             expenseForm.reset();
             setCurrentDateTime();
-            // Em vez de puxar da memória local, vai buscar os dados frescos ao Sheets
             loadDataFromSheets(); 
         })
         .catch(err => {
@@ -516,7 +635,7 @@
 
     // Inicialização
     setCurrentDateTime();
-    loadDataFromSheets(); // Ao abrir a página, vai logo buscar tudo à nuvem
+    loadDataFromSheets();
 </script>
 
 </body>
