@@ -118,6 +118,7 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            text-align: center;
             gap: 4px;
         }
         .income-input-zone label {
@@ -125,19 +126,11 @@
             color: #166534;
             font-weight: 600;
         }
-        .income-input-zone input {
-            width: 110px;
-            padding: 4px 6px;
-            font-size: 0.9rem;
-            text-align: center;
-            border: 1px solid #86efac;
-            border-radius: 4px;
-        }
-        .income-input-zone input:disabled {
-            background-color: #e2e8f0;
-            border-color: #cbd5e1;
-            color: #64748b;
-            cursor: not-allowed;
+        .income-input-zone .val-ganhos {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #16a34a;
+            margin-top: 2px;
         }
         .net-savings-zone {
             background: #f0fdfa;
@@ -472,8 +465,8 @@
             
             <div class="savings-box" id="savingsWidget" style="display: none;">
                 <div class="income-input-zone">
-                    <label id="incomeLabel" for="monthlyIncomeInput">Ganhos (€):</label>
-                    <input type="number" id="monthlyIncomeInput" step="0.01" min="0" placeholder="0.00" onchange="sendIncomeToSheets()">
+                    <span id="incomeLabel" style="font-size: 0.8rem; color: #166534; font-weight: 600;">Ganhos:</span>
+                    <span class="val-ganhos" id="incomeValueText">0.00 €</span>
                 </div>
                 <div class="net-savings-zone">
                     <span class="title">Poupança Líquida:</span>
@@ -568,7 +561,7 @@
     const historySearchInput = document.getElementById('historySearchInput');
     
     const savingsWidget = document.getElementById('savingsWidget');
-    const monthlyIncomeInput = document.getElementById('monthlyIncomeInput');
+    const incomeValueText = document.getElementById('incomeValueText');
     const netSavingsValue = document.getElementById('netSavingsValue');
     const incomeLabel = document.getElementById('incomeLabel');
 
@@ -588,69 +581,51 @@
         }
     });
 
-    // Formata o campo de ganhos para duas casas decimais ao sair dele
-    monthlyIncomeInput.addEventListener('blur', function() {
-        const val = parseFloat(this.value);
-        if(!isNaN(val) && val > 0) {
-            this.value = val.toFixed(2);
-        }
-    });
-
     function clearSearchFilter() {
         historySearchInput.value = '';
         updateUI();
     }
 
-    function sendIncomeToSheets() {
-        if (currentPeriod === 'anual') return;
-
-        const value = parseFloat(monthlyIncomeInput.value) || 0;
-        const key = `${selectedYearValue}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
-        
-        serverIncome[key] = value;
-        calculateSavingsDisplay();
-
-        const params = new URLSearchParams();
-        params.append('action', 'saveIncome');
-        params.append('mes_ano', key);
-        params.append('valor', value);
-
-        fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString()
-        })
-        .then(() => { console.log("Ganho mensal guardado na Cloud."); })
-        .catch(err => { console.error("Erro ao sincronizar ganho:", err); });
-    }
-
+    // LEITURA AVANÇADA E ROBUSTA DE ENTRADAS DE GANHOS DO SHEETS
     function calculateSavingsDisplay() {
         let income = 0;
 
         if (currentPeriod === 'mensal') {
-            const key = `${selectedYearValue}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
-            income = serverIncome[key] || 0;
-            monthlyIncomeInput.value = income ? income.toFixed(2) : '';
-            monthlyIncomeInput.disabled = false; 
+            // Gera os dois formatos possíveis para o mês selecionado
+            const keyStandard = `${selectedYearValue}-${String(selectedMonthIndex + 1).padStart(2, '0')}`; // Ex: 2026-06
+            const keyShort = `${selectedYearValue}-${selectedMonthIndex + 1}`; // Ex: 2026-6
+
+            let foundValue = null;
+            
+            Object.keys(serverIncome).forEach(k => {
+                const cleanKey = String(k).trim();
+                if (cleanKey === keyStandard || cleanKey === keyShort) {
+                    foundValue = parseFloat(serverIncome[k]);
+                }
+            });
+
+            income = foundValue !== null ? foundValue : 0;
+            incomeValueText.textContent = `${income.toFixed(2)} €`;
         } 
         else if (currentPeriod === 'anual') {
-            monthlyIncomeInput.disabled = true; 
+            // No anual, soma todos os meses que comecem pelo ano selecionado
             Object.keys(serverIncome).forEach(key => {
-                if (key.startsWith(`${selectedYearValue}-`)) {
+                const cleanKey = String(key).trim();
+                // Deteta "2026-06" ou "2026-6"
+                if (cleanKey.startsWith(`${selectedYearValue}-`)) {
                     income += parseFloat(serverIncome[key]) || 0;
                 }
             });
-            monthlyIncomeInput.value = income.toFixed(2);
+            incomeValueText.textContent = `${income.toFixed(2)} €`;
         }
 
-        const currentExpense = parseFloat(totalAmountSpan.textContent.replace(' €', '')) || 0;
+        const currentExpense = parseFloat(totalAmountSpan.textContent.replace(' €', '').replace(/ /g, '')) || 0;
         const savings = income - currentExpense;
         
         if (income > 0) {
             const savingsPct = (savings / income) * 100;
             netSavingsValue.textContent = `${savings.toFixed(2)} € (${savingsPct.toFixed(0)}%)`;
-            netSavingsValue.style.color = savings >= 0 ? 'var(--savings)' : 'var(--danger)';
+            netSavingsValue.style.color = savings >= 0 ? 'var(--success)' : 'var(--danger)'; // Corrigido para usar a variável green
         } else {
             netSavingsValue.textContent = `${savings.toFixed(2)} €`;
             netSavingsValue.style.color = 'var(--danger)';
@@ -680,20 +655,18 @@
     }
 
     function loadDataFromSheets() {
-        fetch(GOOGLE_SCRIPT_URL)
-        .then(response => response.json())
-        .then(data => {
-            expenses = data.expenses || [];
-            budgets = data.budgets || {};
-            serverIncome = data.income || {}; 
-            updateUI();
-        })
-        .catch(err => {
-            console.error(err);
-            if(document.getElementById('pageDashboard').classList.contains('active')) {
-                expenseList.innerHTML = '<li class="no-expenses" style="color:red;">Não foi possível carregar os dados.</li>';
-            }
-        });
+        // Cria um elemento de script dinâmico para saltar a barreira do "file://"
+        const script = document.createElement('script');
+        script.src = `${GOOGLE_SCRIPT_URL}?callback=handleSheetsResponse`;
+        document.body.appendChild(script);
+    }
+
+    // Nova função para receber os dados vindos do Sheets
+    function handleSheetsResponse(data) {
+        expenses = data.expenses || [];
+        budgets = data.budgets || {};
+        serverIncome = data.income || {}; 
+        updateUI();
     }
 
     function formatDatePT(dateTimeString) {
@@ -732,7 +705,7 @@
         
         if (period === 'mensal' || period === 'anual') {
             savingsWidget.style.display = 'grid';
-            incomeLabel.textContent = period === 'anual' ? 'Ganhos do Ano (Soma aut.):' : 'Ganhos do Mês (€):';
+            incomeLabel.textContent = period === 'anual' ? 'Ganhos do Ano:' : 'Ganhos do Mês:';
         } else {
             savingsWidget.style.display = 'none';
         }
