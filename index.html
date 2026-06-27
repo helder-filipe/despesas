@@ -84,7 +84,6 @@
             background-color: #cbd5e1;
         }
 
-        /* Bloco de Resumo Financeiro Avançado */
         .financial-summary-box {
             display: flex;
             flex-direction: column;
@@ -105,7 +104,6 @@
             font-size: 1.4rem;
         }
         
-        /* Zona de Ganhos e Poupanças */
         .savings-box {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -128,12 +126,18 @@
             font-weight: 600;
         }
         .income-input-zone input {
-            width: 80px;
+            width: 110px;
             padding: 4px 6px;
             font-size: 0.9rem;
             text-align: center;
             border: 1px solid #86efac;
             border-radius: 4px;
+        }
+        .income-input-zone input:disabled {
+            background-color: #e2e8f0;
+            border-color: #cbd5e1;
+            color: #64748b;
+            cursor: not-allowed;
         }
         .net-savings-zone {
             background: #f0fdfa;
@@ -458,7 +462,6 @@
         </div>
     </div>
 
-
     <div id="pageDashboard" class="page">
         <button class="btn-back" onclick="navigateTo('pageForm')">← Voltar ao Registo</button>
         
@@ -470,7 +473,7 @@
             <div class="savings-box" id="savingsWidget" style="display: none;">
                 <div class="income-input-zone">
                     <label id="incomeLabel" for="monthlyIncomeInput">Ganhos (€):</label>
-                    <input type="number" id="monthlyIncomeInput" step="10" min="0" placeholder="0" oninput="saveIncomeAndRefresh()">
+                    <input type="number" id="monthlyIncomeInput" step="0.01" min="0" placeholder="0.00" onchange="sendIncomeToSheets()">
                 </div>
                 <div class="net-savings-zone">
                     <span class="title">Poupança Líquida:</span>
@@ -564,7 +567,6 @@
     const navigationControls = document.getElementById('navigationControls');
     const historySearchInput = document.getElementById('historySearchInput');
     
-    // Elementos da nova funcionalidade de Poupança
     const savingsWidget = document.getElementById('savingsWidget');
     const monthlyIncomeInput = document.getElementById('monthlyIncomeInput');
     const netSavingsValue = document.getElementById('netSavingsValue');
@@ -572,6 +574,7 @@
 
     let expenses = [];
     let budgets = {}; 
+    let serverIncome = {}; 
     let currentPeriod = 'sempre';
     let myChart = null;
 
@@ -585,34 +588,62 @@
         }
     });
 
+    // Formata o campo de ganhos para duas casas decimais ao sair dele
+    monthlyIncomeInput.addEventListener('blur', function() {
+        const val = parseFloat(this.value);
+        if(!isNaN(val) && val > 0) {
+            this.value = val.toFixed(2);
+        }
+    });
+
     function clearSearchFilter() {
         historySearchInput.value = '';
         updateUI();
     }
 
-    // Grava localmente no telemóvel o ganho introduzido para aquele mês ou ano específico
-    function saveIncomeAndRefresh() {
+    function sendIncomeToSheets() {
+        if (currentPeriod === 'anual') return;
+
         const value = parseFloat(monthlyIncomeInput.value) || 0;
-        const key = currentPeriod === 'anual' ? `inc_year_${selectedYearValue}` : `inc_month_${selectedYearValue}_${selectedMonthIndex}`;
-        localStorage.setItem(key, value);
+        const key = `${selectedYearValue}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
         
-        // Atualiza apenas a caixa de poupança sem redesenhar o gráfico inteiro
+        serverIncome[key] = value;
         calculateSavingsDisplay();
+
+        const params = new URLSearchParams();
+        params.append('action', 'saveIncome');
+        params.append('mes_ano', key);
+        params.append('valor', value);
+
+        fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString()
+        })
+        .then(() => { console.log("Ganho mensal guardado na Cloud."); })
+        .catch(err => { console.error("Erro ao sincronizar ganho:", err); });
     }
 
     function calculateSavingsDisplay() {
-        const key = currentPeriod === 'anual' ? `inc_year_${selectedYearValue}` : `inc_month_${selectedYearValue}_${selectedMonthIndex}`;
-        const savedIncome = localStorage.getItem(key);
-        
-        if (savedIncome !== null) {
-            monthlyIncomeInput.value = savedIncome;
-        } else {
-            monthlyIncomeInput.value = '';
+        let income = 0;
+
+        if (currentPeriod === 'mensal') {
+            const key = `${selectedYearValue}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
+            income = serverIncome[key] || 0;
+            monthlyIncomeInput.value = income ? income.toFixed(2) : '';
+            monthlyIncomeInput.disabled = false; 
+        } 
+        else if (currentPeriod === 'anual') {
+            monthlyIncomeInput.disabled = true; 
+            Object.keys(serverIncome).forEach(key => {
+                if (key.startsWith(`${selectedYearValue}-`)) {
+                    income += parseFloat(serverIncome[key]) || 0;
+                }
+            });
+            monthlyIncomeInput.value = income.toFixed(2);
         }
 
-        const income = parseFloat(monthlyIncomeInput.value) || 0;
-        
-        // Obtemos a despesa total calculada no período corrente através do texto processado na UI
         const currentExpense = parseFloat(totalAmountSpan.textContent.replace(' €', '')) || 0;
         const savings = income - currentExpense;
         
@@ -621,8 +652,8 @@
             netSavingsValue.textContent = `${savings.toFixed(2)} € (${savingsPct.toFixed(0)}%)`;
             netSavingsValue.style.color = savings >= 0 ? 'var(--savings)' : 'var(--danger)';
         } else {
-            netSavingsValue.textContent = '0.00 €';
-            netSavingsValue.style.color = 'var(--secondary)';
+            netSavingsValue.textContent = `${savings.toFixed(2)} €`;
+            netSavingsValue.style.color = 'var(--danger)';
         }
     }
 
@@ -654,6 +685,7 @@
         .then(data => {
             expenses = data.expenses || [];
             budgets = data.budgets || {};
+            serverIncome = data.income || {}; 
             updateUI();
         })
         .catch(err => {
@@ -698,10 +730,9 @@
         };
         totalPeriodLabel.textContent = labels[period];
         
-        // Ativa ou desativa a caixa de ganhos consoante o separador ativo
         if (period === 'mensal' || period === 'anual') {
             savingsWidget.style.display = 'grid';
-            incomeLabel.textContent = period === 'anual' ? 'Ganhos do Ano (€):' : 'Ganhos do Mês (€):';
+            incomeLabel.textContent = period === 'anual' ? 'Ganhos do Ano (Soma aut.):' : 'Ganhos do Mês (€):';
         } else {
             savingsWidget.style.display = 'none';
         }
@@ -711,7 +742,6 @@
 
     function renderChart(type, labels, data, chartTitle, colorHex, customOptions = {}) {
         if (myChart) myChart.destroy();
-        
         const ctx = document.getElementById('expenseChart').getContext('2d');
         const baseOptions = {
             responsive: true,
@@ -719,8 +749,6 @@
             plugins: { legend: { display: false } },
             scales: { y: { beginAtZero: true } }
         };
-        const finalOptions = Object.assign({}, baseOptions, customOptions);
-
         myChart = new Chart(ctx, {
             type: type,
             data: {
@@ -733,17 +761,15 @@
                     borderColor: '#cbd5e1'
                 }]
             },
-            options: finalOptions
+            options: Object.assign({}, baseOptions, customOptions)
         });
     }
 
     function buildNavigationSelectors() {
         navigationControls.innerHTML = '';
-        
         if (currentPeriod === 'mensal') {
             const divGroup = document.createElement('div');
             divGroup.className = 'filter-group-inline';
-            
             const lbl = document.createElement('label');
             lbl.textContent = "Mês: ";
             const sel = document.createElement('select');
@@ -762,11 +788,9 @@
             divGroup.appendChild(sel);
             navigationControls.appendChild(divGroup);
         }
-        
         if (currentPeriod === 'anual') {
             const divGroup = document.createElement('div');
             divGroup.className = 'filter-group-inline';
-            
             const lbl = document.createElement('label');
             lbl.textContent = "Ano: ";
             const sel = document.createElement('select');
@@ -774,13 +798,11 @@
                 selectedYearValue = parseInt(this.value);
                 updateUI();
             };
-            
             const yearsInHistory = new Set([new Date().getFullYear()]);
             expenses.forEach(e => {
                 const y = new Date(e.date).getFullYear();
                 if (!isNaN(y)) yearsInHistory.add(y);
             });
-            
             Array.from(yearsInHistory).sort((a,b) => b - a).forEach(year => {
                 const opt = document.createElement('option');
                 opt.value = year;
@@ -788,7 +810,6 @@
                 if (year === selectedYearValue) opt.selected = true;
                 sel.appendChild(opt);
             });
-            
             divGroup.appendChild(lbl);
             divGroup.appendChild(sel);
             navigationControls.appendChild(divGroup);
@@ -801,7 +822,6 @@
         buildNavigationSelectors();
         
         const now = new Date();
-        const currentYear = now.getFullYear();
         let totalGeral = 0;
         const selectedChartCat = chartCategorySelect.value;
         const searchText = historySearchInput.value.toLowerCase().trim();
@@ -813,29 +833,26 @@
             summaryTitle.textContent = "Orçamentos Proporcionais Diários";
             historyTitle.textContent = "Despesas de Hoje";
             budgetFactor = 1 / 30;
-            filteredExpenses = expenses.filter(exp => new Date(exp.date).toDateString() === now.toDateString());
-
+            filteredExpenses = expenses.filter(exp => exp.date && exp.date.substring(0,10) === now.toISOString().substring(0,10));
         } else if (currentPeriod === 'semanal') {
             summaryTitle.textContent = "Orçamentos Proporcionais Semanais";
             historyTitle.textContent = "Despesas desta Semana";
             budgetFactor = 1 / 4;
-            filteredExpenses = expenses.filter(exp => isSameWeek(exp.date, now));
-
+            filteredExpenses = expenses.filter(exp => exp.date && isSameWeek(exp.date, now));
         } else if (currentPeriod === 'mensal') {
             summaryTitle.textContent = `Orçamentos para o Mês de ${monthNames[selectedMonthIndex]}`;
             historyTitle.textContent = `Registos do Mês de ${monthNames[selectedMonthIndex]} (${selectedYearValue})`;
             budgetFactor = 1;
             filteredExpenses = expenses.filter(exp => {
+                if(!exp.date) return false;
                 const d = new Date(exp.date);
                 return d.getFullYear() === selectedYearValue && d.getMonth() === selectedMonthIndex;
             });
-
         } else if (currentPeriod === 'anual') {
             summaryTitle.textContent = `Orçamentos Totais do Ano ${selectedYearValue}`;
             historyTitle.textContent = `Todos os Registos de ${selectedYearValue}`;
             budgetFactor = 12;
-            filteredExpenses = expenses.filter(exp => new Date(exp.date).getFullYear() === selectedYearValue);
-
+            filteredExpenses = expenses.filter(exp => exp.date && new Date(exp.date).getFullYear() === selectedYearValue);
         } else {
             summaryTitle.textContent = "Divisão Geral Acumulada";
             historyTitle.textContent = "Histórico Geral Completo";
@@ -851,7 +868,7 @@
             displayExpenses = displayExpenses.filter(exp => exp.category === selectedChartCat);
         }
         if (searchText !== '') {
-            displayExpenses = displayExpenses.filter(exp => exp.description.toLowerCase().includes(searchText));
+            displayExpenses = displayExpenses.filter(exp => exp.description && exp.description.toLowerCase().includes(searchText));
         }
 
         if (displayExpenses.length === 0) {
@@ -860,21 +877,16 @@
             displayExpenses.forEach(expense => {
                 totalGeral += expense.amount;
                 const colors = categoryColors[expense.category] || categoryColors["Outros"];
-                
                 const isHighExpense = expense.amount >= 50.00;
-                const itemClass = isHighExpense ? 'expense-item high-expense' : 'expense-item';
-
                 const li = document.createElement('li');
-                li.className = itemClass;
+                li.className = isHighExpense ? 'expense-item high-expense' : 'expense-item';
                 li.innerHTML = `
                     <div class="expense-info">
                         <strong>${expense.description}</strong>
                         <span class="expense-date">${formatDatePT(expense.date)}</span>
                         <span class="expense-category" style="background-color: ${colors.bg}; color: ${colors.text};">${expense.category}</span>
                     </div>
-                    <div>
-                        <span style="font-weight: bold; color: ${colors.text};">${expense.amount.toFixed(2)} €</span>
-                    </div>
+                    <div><span style="font-weight: bold; color: ${colors.text};">${expense.amount.toFixed(2)} €</span></div>
                 `;
                 expenseList.appendChild(li);
             });
@@ -887,12 +899,10 @@
 
         totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
 
-        // Executa o cálculo e sincronização do painel de poupanças
         if (currentPeriod === 'mensal' || currentPeriod === 'anual') {
             calculateSavingsDisplay();
         }
 
-        // Renderização dos cartões e barras de progresso abaixo do gráfico
         let categoriesToRender = [];
         if (currentPeriod === 'sempre') {
             categoriesToRender = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
@@ -910,10 +920,8 @@
                 const spentInPeriod = categoryPeriodTotals[cat] || 0;
                 const baseBudget = budgets[cat] || 0;
                 const adjustedLimit = baseBudget * budgetFactor; 
-                
                 const rowWrapper = document.createElement('div');
                 rowWrapper.className = 'category-row-wrapper';
-
                 const tag = document.createElement('div');
                 tag.className = 'category-sum-tag';
                 tag.style.backgroundColor = colors.bg;
@@ -921,7 +929,6 @@
 
                 let budgetText = '';
                 let pct = 0;
-                
                 if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     pct = (spentInPeriod / adjustedLimit) * 100;
                     budgetText = `<span style="font-size: 0.75rem; font-weight: normal; margin-left: 4px;">(Teto: ${adjustedLimit.toFixed(1)}€ | ${pct.toFixed(0)}%)</span>`;
@@ -933,20 +940,12 @@
                 if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     const barContainer = document.createElement('div');
                     barContainer.className = 'progress-bar-container';
-                    
                     const barFill = document.createElement('div');
                     barFill.className = 'progress-bar-fill';
                     barFill.style.width = `${Math.min(pct, 100)}%`;
-                    
-                    if (pct >= 100) {
-                        barFill.style.backgroundColor = 'var(--danger)';
-                        tag.style.border = '1px solid var(--danger)'; 
-                    } else if (pct >= 80) {
-                        barFill.style.backgroundColor = 'var(--warning)';
-                    } else {
-                        barFill.style.backgroundColor = 'var(--success)';
-                    }
-
+                    if (pct >= 100) { barFill.style.backgroundColor = 'var(--danger)'; tag.style.border = '1px solid var(--danger)'; }
+                    else if (pct >= 80) { barFill.style.backgroundColor = 'var(--warning)'; }
+                    else { barFill.style.backgroundColor = 'var(--success)'; }
                     barContainer.appendChild(barFill);
                     rowWrapper.appendChild(barContainer);
                 }
@@ -954,10 +953,10 @@
             });
         }
 
-        // CONTROLADORES DO GRÁFICO CHART.JS
-        if (currentPeriod === 'mensal') {
+        if (currentPeriod === 'mensal' || currentPeriod === 'anual') {
             const monthlyTotals = Array(12).fill(0);
             expenses.forEach(exp => {
+                if(!exp.date) return;
                 const d = new Date(exp.date);
                 if (d.getFullYear() === selectedYearValue) {
                     if (selectedChartCat === "TOTAL_GERAL" || exp.category === selectedChartCat) {
@@ -965,54 +964,25 @@
                     }
                 }
             });
-            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? `Gastos Totais de ${selectedYearValue}` : `Gastos em ${selectedChartCat}`;
-            renderChart('bar', monthNames, monthlyTotals, chartLabelText, "#3b82f6", {
+            renderChart('bar', monthNames, monthlyTotals, `Gastos Totais de ${selectedYearValue}`, "#3b82f6", {
                 scales: { y: { ticks: { callback: v => v + ' €' } } }
             });
-
-        } else if (currentPeriod === 'anual') {
-            const monthlyTotalsForYear = Array(12).fill(0);
-            expenses.forEach(exp => {
-                const d = new Date(exp.date);
-                if (d.getFullYear() === selectedYearValue) {
-                    if (selectedChartCat === "TOTAL_GERAL" || exp.category === selectedChartCat) {
-                        monthlyTotalsForYear[d.getMonth()] += exp.amount;
-                    }
-                }
-            });
-            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? `Gastos Totais de ${selectedYearValue}` : `${selectedChartCat} em ${selectedYearValue}`;
-            renderChart('bar', monthNames, monthlyTotalsForYear, chartLabelText, "#10b981", {
-                scales: { y: { ticks: { callback: v => v + ' €' } } }
-            });
-
         } else {
             const sortedActiveCats = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
-            const chartData = sortedActiveCats.map(cat => categoryPeriodTotals[cat]);
-            const chartColors = sortedActiveCats.map(cat => categoryColors[cat]?.hex || "#94a3b8");
-            
-            let finalLabels = sortedActiveCats;
-            let finalData = chartData;
-            let finalColors = chartColors;
+            let finalLabels = sortedActiveCats, finalData = sortedActiveCats.map(cat => categoryPeriodTotals[cat]);
+            let finalColors = sortedActiveCats.map(cat => categoryColors[cat]?.hex || "#94a3b8");
 
             if (selectedChartCat !== "TOTAL_GERAL") {
                 finalLabels = [selectedChartCat];
                 finalData = [categoryPeriodTotals[selectedChartCat] || 0];
                 finalColors = [categoryColors[selectedChartCat]?.hex || "#94a3b8"];
             }
-
-            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos por Categoria" : `Filtro: ${selectedChartCat}`;
-
             if (finalLabels.length > 0) {
-                renderChart('bar', finalLabels, finalData, chartLabelText, finalColors, {
+                renderChart('bar', finalLabels, finalData, "Gastos por Categoria", finalColors, {
                     indexAxis: 'y',
-                    scales: {
-                        x: { beginAtZero: true, ticks: { callback: value => value + ' €' } },
-                        y: { ticks: { font: { size: 11 } } }
-                    }
+                    scales: { x: { beginAtZero: true, ticks: { callback: value => value + ' €' } } }
                 });
-            } else if (myChart) {
-                myChart.destroy();
-            }
+            } else if (myChart) { myChart.destroy(); }
         }
     }
 
@@ -1026,31 +996,24 @@
         submitBtn.disabled = true;
         submitBtn.textContent = "A sincronizar...";
 
-        const formData = new URLSearchParams();
-        formData.append('description', description);
-        formData.append('amount', amount);
-        formData.append('date', date);
-        formData.append('category', category);
+        const dataPayload = {
+            date: date,
+            description: description,
+            amount: amount,
+            category: category
+        };
 
         fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData.toString()
+            body: JSON.stringify(dataPayload)
         })
         .then(() => {
             expenseForm.reset();
             setCurrentDateTime();
             loadDataFromSheets(); 
          })
-        .catch(err => {
-            console.error(err);
-            alert("Erro de ligação.");
-        })
-        .finally(() => {
-            submitBtn.disabled = false;
-            submitBtn.textContent = "Adicionar e Sincronizar";
-        });
+        .catch(err => { console.error(err); alert("Erro de ligação."); })
+        .finally(() => { submitBtn.disabled = false; submitBtn.textContent = "Adicionar e Sincronizar"; });
     });
 
     setCurrentDateTime();
