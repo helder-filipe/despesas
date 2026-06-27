@@ -40,7 +40,6 @@
             color: var(--primary);
         }
         
-        /* Modos de visualização (Páginas) */
         .page {
             display: none;
         }
@@ -48,7 +47,6 @@
             display: block;
         }
 
-        /* Botões de navegação principais */
         .nav-btn-container {
             display: flex;
             justify-content: center;
@@ -112,7 +110,7 @@
             padding: 10px;
             border-radius: 8px;
         }
-        .chart-filter-zone div {
+        .chart-filter-zone .filter-group-inline {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -127,7 +125,7 @@
         .chart-container {
             position: relative;
             margin: 10px auto 20px auto;
-            height: 280px;
+            height: 300px;
             width: 100%;
             max-width: 550px;
         }
@@ -375,8 +373,8 @@
         </div>
 
         <div class="chart-filter-zone" id="chartFilterZone">
-            <div id="navigationControls"></div>
-            <div>
+            <div id="navigationControls" style="display: flex; gap: 10px; flex-wrap: wrap;"></div>
+            <div class="filter-group-inline">
                 <label for="chartCategorySelect">Gráfico:</label>
                 <select id="chartCategorySelect" onchange="updateUI()">
                     <option value="TOTAL_GERAL">Evolução de Gastos Totais</option>
@@ -542,18 +540,13 @@
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { 
-                    display: type === 'doughnut', 
-                    position: 'bottom', 
-                    labels: { boxWidth: 12, font: { size: 10 } } 
-                }
+                legend: { display: false }
             },
-            scales: (type === 'bar') ? { 
-                y: { beginAtZero: true, ticks: { callback: value => value + ' €' } } 
-            } : {}
+            scales: {
+                y: { beginAtZero: true }
+            }
         };
 
-        // Mesclar opções customizadas (ex: para o gráfico de barras horizontais)
         const finalOptions = Object.assign({}, baseOptions, customOptions);
 
         myChart = new Chart(ctx, {
@@ -576,6 +569,9 @@
         navigationControls.innerHTML = '';
         
         if (currentPeriod === 'mensal') {
+            const divGroup = document.createElement('div');
+            divGroup.className = 'filter-group-inline';
+            
             const lbl = document.createElement('label');
             lbl.textContent = "Mês: ";
             const sel = document.createElement('select');
@@ -590,11 +586,15 @@
                 if (idx === selectedMonthIndex) opt.selected = true;
                 sel.appendChild(opt);
             });
-            navigationControls.appendChild(lbl);
-            navigationControls.appendChild(sel);
+            divGroup.appendChild(lbl);
+            divGroup.appendChild(sel);
+            navigationControls.appendChild(divGroup);
         }
         
         if (currentPeriod === 'anual') {
+            const divGroup = document.createElement('div');
+            divGroup.className = 'filter-group-inline';
+            
             const lbl = document.createElement('label');
             lbl.textContent = "Ano: ";
             const sel = document.createElement('select');
@@ -602,20 +602,24 @@
                 selectedYearValue = parseInt(this.value);
                 updateUI();
             };
+            
             const yearsInHistory = new Set([new Date().getFullYear()]);
             expenses.forEach(e => {
                 const y = new Date(e.date).getFullYear();
                 if (!isNaN(y)) yearsInHistory.add(y);
             });
+            
             Array.from(yearsInHistory).sort((a,b) => b - a).forEach(year => {
                 const opt = document.createElement('option');
                 opt.value = year;
                 opt.textContent = year;
                 if (year === selectedYearValue) opt.selected = true;
-                sel.appendChild(year);
+                sel.appendChild(opt);
             });
-            navigationControls.appendChild(lbl);
-            navigationControls.appendChild(sel);
+            
+            divGroup.appendChild(lbl);
+            divGroup.appendChild(sel);
+            navigationControls.appendChild(divGroup);
         }
     }
 
@@ -657,6 +661,7 @@
             summaryTitle.textContent = `Orçamentos Totais do Ano ${selectedYearValue}`;
             historyTitle.textContent = `Todos os Registos de ${selectedYearValue}`;
             budgetFactor = 12;
+            // CORREÇÃO: Filtra estritamente os registos com base no Ano Escolhido na Dropdown
             filteredExpenses = expenses.filter(exp => new Date(exp.date).getFullYear() === selectedYearValue);
 
         } else {
@@ -666,17 +671,21 @@
             filteredExpenses = [...expenses];
         }
 
+        // Processamento de somas e renderização do histórico
         const categoryPeriodTotals = {};
         filteredExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        if (filteredExpenses.length === 0) {
-            expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa registada neste período de análise.</li>';
-        } else {
-            filteredExpenses.forEach(expense => {
-                totalGeral += expense.amount;
-                if (!categoryPeriodTotals[expense.category]) categoryPeriodTotals[expense.category] = 0;
-                categoryPeriodTotals[expense.category] += expense.amount;
+        // Filtro adicional de listagem e totais caso o utilizador filtre por uma categoria na dropdown superior
+        let displayExpenses = filteredExpenses;
+        if (selectedChartCat !== "TOTAL_GERAL") {
+            displayExpenses = filteredExpenses.filter(exp => exp.category === selectedChartCat);
+        }
 
+        if (displayExpenses.length === 0) {
+            expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa correspondente aos filtros neste período.</li>';
+        } else {
+            displayExpenses.forEach(expense => {
+                totalGeral += expense.amount;
                 const colors = categoryColors[expense.category] || categoryColors["Outros"];
                 const li = document.createElement('li');
                 li.className = 'expense-item';
@@ -684,8 +693,16 @@
                 expenseList.appendChild(li);
             });
         }
+        
+        // Mapeia os totais gerais por categoria para a caixa de progresso (independente da dropdown superior do gráfico)
+        filteredExpenses.forEach(expense => {
+            if (!categoryPeriodTotals[expense.category]) categoryPeriodTotals[expense.category] = 0;
+            categoryPeriodTotals[expense.category] += expense.amount;
+        });
+
         totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
 
+        // Renderização dos badges e barras de progresso abaixo do gráfico
         let categoriesToRender = [];
         if (currentPeriod === 'sempre') {
             categoriesToRender = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
@@ -701,7 +718,6 @@
             categoriesToRender.forEach(cat => {
                 const colors = categoryColors[cat] || categoryColors["Outros"];
                 const spentInPeriod = categoryPeriodTotals[cat] || 0;
-                
                 const baseBudget = budgets[cat] || 0;
                 const adjustedLimit = baseBudget * budgetFactor; 
                 
@@ -748,6 +764,7 @@
             });
         }
 
+        // GESTÃO DINÂMICA DOS GRÁFICOS DE ACORDO COM O SEPARADOR ACTIVADO
         if (currentPeriod === 'mensal') {
             const monthlyTotals = Array(12).fill(0);
             expenses.forEach(exp => {
@@ -759,33 +776,32 @@
                 }
             });
             const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos Totais do Ano" : `Gastos em ${selectedChartCat}`;
-            renderChart('bar', monthNames, monthlyTotals, chartLabelText, "#3b82f6");
+            renderChart('bar', monthNames, monthlyTotals, chartLabelText, "#3b82f6", {
+                scales: { y: { ticks: { callback: v => v + ' €' } } }
+            });
 
         } else if (currentPeriod === 'anual') {
-            const yearlyTotals = {};
+            // GRÁFICO DE BARRAS VERTICAIS POR MÊS DENTRO DO ANO SELECIONADO
+            const monthlyTotalsForYear = Array(12).fill(0);
             expenses.forEach(exp => {
-                const y = new Date(exp.date).getFullYear();
-                if(!isNaN(y)) {
-                    if (!yearlyTotals[y]) yearlyTotals[y] = 0;
+                const d = new Date(exp.date);
+                if (d.getFullYear() === selectedYearValue) {
                     if (selectedChartCat === "TOTAL_GERAL" || exp.category === selectedChartCat) {
-                        yearlyTotals[y] += exp.amount;
+                        monthlyTotalsForYear[d.getMonth()] += exp.amount;
                     }
                 }
             });
-            const sortedYears = Object.keys(yearlyTotals).sort();
-            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Histórico de Anos" : `Gastos em ${selectedChartCat}`;
-            renderChart('bar', sortedYears, sortedYears.map(y => yearlyTotals[y]), chartLabelText, "#10b981");
+            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? `Gastos Totais de ${selectedYearValue}` : `${selectedChartCat} em ${selectedYearValue}`;
+            renderChart('bar', monthNames, monthlyTotalsForYear, chartLabelText, "#10b981", {
+                scales: { y: { ticks: { callback: v => v + ' €' } } }
+            });
 
-        } else if (currentPeriod === 'sempre') {
-            // ALTERAÇÃO: Gráfico de Barras Horizontais no separador "Sempre"
-            // Ordena os dados do maior gasto para o menor para manter o gráfico coerente
+        } else {
+            // SEPARADORES: DIÁRIO, SEMANAL E SEMPRE (Todos em Barras Horizontais agora!)
             const sortedActiveCats = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
             const chartData = sortedActiveCats.map(cat => categoryPeriodTotals[cat]);
             const chartColors = sortedActiveCats.map(cat => categoryColors[cat]?.hex || "#94a3b8");
             
-            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos Totais Acumulados" : `Filtro: ${selectedChartCat}`;
-            
-            // Filtra caso o utilizador selecione uma categoria específica na dropdown superior
             let finalLabels = sortedActiveCats;
             let finalData = chartData;
             let finalColors = chartColors;
@@ -796,21 +812,16 @@
                 finalColors = [categoryColors[selectedChartCat]?.hex || "#94a3b8"];
             }
 
-            renderChart('bar', finalLabels, finalData, chartLabelText, finalColors, {
-                indexAxis: 'y', // Isto transforma as barras verticais em horizontais
-                scales: {
-                    x: { beginAtZero: true, ticks: { callback: value => value + ' €' } },
-                    y: { ticks: { font: { size: 11 } } }
-                }
-            });
+            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos por Categoria" : `Filtro: ${selectedChartCat}`;
 
-        } else {
-            const chartLabels = Object.keys(categoryPeriodTotals);
-            const chartData = Object.values(categoryPeriodTotals);
-            const chartColors = chartLabels.map(cat => categoryColors[cat]?.bg || "#e2e8f0");
-            
-            if (chartLabels.length > 0) {
-                renderChart('doughnut', chartLabels, chartData, "Categorias", chartColors);
+            if (finalLabels.length > 0) {
+                renderChart('bar', finalLabels, finalData, chartLabelText, finalColors, {
+                    indexAxis: 'y',
+                    scales: {
+                        x: { beginAtZero: true, ticks: { callback: value => value + ' €' } },
+                        y: { ticks: { font: { size: 11 } } }
+                    }
+                });
             } else if (myChart) {
                 myChart.destroy();
             }
