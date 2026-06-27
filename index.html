@@ -255,6 +255,33 @@
             color: var(--primary);
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
+        
+        /* Zona de pesquisa de texto */
+        .search-container {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .search-container input {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .btn-clear-search {
+            background: #cbd5e1;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-clear-search:hover {
+            background: #94a3b8;
+        }
+
         .expense-list {
             list-style: none;
             padding: 0;
@@ -266,6 +293,14 @@
             align-items: center;
             padding: 12px;
             border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            transition: background 0.15s;
+        }
+        /* Melhoria 1: Destaque de despesas altas (borda lateral esquerda vermelha) */
+        .expense-item.high-expense {
+            border-left: 4px solid var(--danger);
+            padding-left: 8px;
+            background: #fff5f5;
         }
         .expense-item:last-child {
             border-bottom: none;
@@ -377,7 +412,7 @@
             <div class="filter-group-inline">
                 <label for="chartCategorySelect">Gráfico:</label>
                 <select id="chartCategorySelect" onchange="updateUI()">
-                    <option value="TOTAL_GERAL">Evolução de Gastos Totais</option>
+                    <option value="TOTAL_GERAL">Todas as Categorias</option>
                 </select>
             </div>
         </div>
@@ -400,6 +435,12 @@
         </div>
 
         <h2 id="historyTitle">Histórico (Do Google Sheets)</h2>
+        
+        <div class="search-container">
+            <input type="text" id="historySearchInput" placeholder="🔍 Pesquisar por descrição..." oninput="updateUI()">
+            <button class="btn-clear-search" onclick="clearSearchFilter()">Limpar</button>
+        </div>
+
         <ul id="expenseList" class="expense-list">
             <li class="loading">A carregar dados do Google Sheets...</li>
         </ul>
@@ -439,6 +480,7 @@
     const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
     const expenseForm = document.getElementById('expenseForm');
     const expenseList = document.getElementById('expenseList');
+    const amountInput = document.getElementById('amount');
     const totalAmountSpan = document.getElementById('totalAmount');
     const totalPeriodLabel = document.getElementById('totalPeriodLabel');
     const categorySummaryList = document.getElementById('categorySummaryList');
@@ -448,6 +490,7 @@
     const historyTitle = document.getElementById('historyTitle');
     const chartCategorySelect = document.getElementById('chartCategorySelect');
     const navigationControls = document.getElementById('navigationControls');
+    const historySearchInput = document.getElementById('historySearchInput');
 
     let expenses = [];
     let budgets = {}; 
@@ -456,6 +499,19 @@
 
     let selectedMonthIndex = new Date().getMonth(); 
     let selectedYearValue = new Date().getFullYear();
+
+    // Melhoria 2: Formatação automática de duas casas decimais ao sair do campo de Valor
+    amountInput.addEventListener('blur', function() {
+        const val = parseFloat(this.value);
+        if(!isNaN(val) && val > 0) {
+            this.value = val.toFixed(2);
+        }
+    });
+
+    function clearSearchFilter() {
+        historySearchInput.value = '';
+        updateUI();
+    }
 
     function navigateTo(pageId) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -474,7 +530,7 @@
         categoriesList.forEach(cat => {
             const opt = document.createElement('option');
             opt.value = cat;
-            opt.textContent = `Categoria: ${cat}`;
+            opt.textContent = `${cat}`;
             chartCategorySelect.appendChild(opt);
         });
     }
@@ -632,6 +688,7 @@
         const currentYear = now.getFullYear();
         let totalGeral = 0;
         const selectedChartCat = chartCategorySelect.value;
+        const searchText = historySearchInput.value.toLowerCase().trim();
 
         let filteredExpenses = [];
         let budgetFactor = 1;
@@ -661,7 +718,6 @@
             summaryTitle.textContent = `Orçamentos Totais do Ano ${selectedYearValue}`;
             historyTitle.textContent = `Todos os Registos de ${selectedYearValue}`;
             budgetFactor = 12;
-            // CORREÇÃO: Filtra estritamente os registos com base no Ano Escolhido na Dropdown
             filteredExpenses = expenses.filter(exp => new Date(exp.date).getFullYear() === selectedYearValue);
 
         } else {
@@ -671,30 +727,45 @@
             filteredExpenses = [...expenses];
         }
 
-        // Processamento de somas e renderização do histórico
         const categoryPeriodTotals = {};
         filteredExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        // Filtro adicional de listagem e totais caso o utilizador filtre por uma categoria na dropdown superior
+        // Filtro Combinado: Categoria (Dropdown) + Descrição (Melhoria 3: Caixa de Pesquisa)
         let displayExpenses = filteredExpenses;
         if (selectedChartCat !== "TOTAL_GERAL") {
-            displayExpenses = filteredExpenses.filter(exp => exp.category === selectedChartCat);
+            displayExpenses = displayExpenses.filter(exp => exp.category === selectedChartCat);
+        }
+        if (searchText !== '') {
+            displayExpenses = displayExpenses.filter(exp => exp.description.toLowerCase().includes(searchText));
         }
 
         if (displayExpenses.length === 0) {
-            expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa correspondente aos filtros neste período.</li>';
+            expenseList.innerHTML = '<li class="no-expenses">Nenhuma despesa encontrada para os critérios aplicados.</li>';
         } else {
             displayExpenses.forEach(expense => {
                 totalGeral += expense.amount;
                 const colors = categoryColors[expense.category] || categoryColors["Outros"];
+                
+                // Melhoria 1: Classificação para despesas altas (ex: acima de 50€)
+                const isHighExpense = expense.amount >= 50.00;
+                const itemClass = isHighExpense ? 'expense-item high-expense' : 'expense-item';
+
                 const li = document.createElement('li');
-                li.className = 'expense-item';
-                li.innerHTML = `<div class="expense-info"><strong>${expense.description}</strong><span class="expense-date">${formatDatePT(expense.date)}</span><span class="expense-category" style="background-color: ${colors.bg}; color: ${colors.text};">${expense.category}</span></div><div><span style="font-weight: bold; color: ${colors.text};">${expense.amount.toFixed(2)} €</span></div>`;
+                li.className = itemClass;
+                li.innerHTML = `
+                    <div class="expense-info">
+                        <strong>${expense.description}</strong>
+                        <span class="expense-date">${formatDatePT(expense.date)}</span>
+                        <span class="expense-category" style="background-color: ${colors.bg}; color: ${colors.text};">${expense.category}</span>
+                    </div>
+                    <div>
+                        <span style="font-weight: bold; color: ${colors.text};">${expense.amount.toFixed(2)} €</span>
+                    </div>
+                `;
                 expenseList.appendChild(li);
             });
         }
         
-        // Mapeia os totais gerais por categoria para a caixa de progresso (independente da dropdown superior do gráfico)
         filteredExpenses.forEach(expense => {
             if (!categoryPeriodTotals[expense.category]) categoryPeriodTotals[expense.category] = 0;
             categoryPeriodTotals[expense.category] += expense.amount;
@@ -702,7 +773,7 @@
 
         totalAmountSpan.textContent = `${totalGeral.toFixed(2)} €`;
 
-        // Renderização dos badges e barras de progresso abaixo do gráfico
+        // Renderização dos cartões e barras de progresso abaixo do gráfico
         let categoriesToRender = [];
         if (currentPeriod === 'sempre') {
             categoriesToRender = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
@@ -764,7 +835,7 @@
             });
         }
 
-        // GESTÃO DINÂMICA DOS GRÁFICOS DE ACORDO COM O SEPARADOR ACTIVADO
+        // CONTROLADORES DO GRÁFICO CHART.JS
         if (currentPeriod === 'mensal') {
             const monthlyTotals = Array(12).fill(0);
             expenses.forEach(exp => {
@@ -781,7 +852,6 @@
             });
 
         } else if (currentPeriod === 'anual') {
-            // GRÁFICO DE BARRAS VERTICAIS POR MÊS DENTRO DO ANO SELECIONADO
             const monthlyTotalsForYear = Array(12).fill(0);
             expenses.forEach(exp => {
                 const d = new Date(exp.date);
