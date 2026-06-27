@@ -459,12 +459,9 @@
     let selectedMonthIndex = new Date().getMonth(); 
     let selectedYearValue = new Date().getFullYear();
 
-    // Sistema simples de troca de páginas internas
     function navigateTo(pageId) {
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(pageId).classList.add('active');
-        
-        // Se navegar para os gráficos, garante que o ChartJS faz o resize correto do canvas
         if (pageId === 'pageDashboard' && myChart) {
             myChart.resize();
         }
@@ -707,7 +704,8 @@
                 let budgetText = '';
                 let pct = 0;
                 
-                if (adjustedLimit > 0) {
+                // Só aplica orçamento se NÃO estivermos no modo 'sempre'
+                if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     pct = (spentInPeriod / adjustedLimit) * 100;
                     budgetText = `<span style="font-size: 0.75rem; font-weight: normal; margin-left: 4px;">(Teto: ${adjustedLimit.toFixed(1)}€ | ${pct.toFixed(0)}%)</span>`;
                 }
@@ -715,7 +713,8 @@
                 tag.innerHTML = `<span>${cat}${budgetText}</span> <span style="font-weight: bold;">${spentInPeriod.toFixed(2)} €</span>`;
                 rowWrapper.appendChild(tag);
 
-                if (adjustedLimit > 0) {
+                // Desenha a barra apenas se não estivermos no separador 'sempre' e houver limite
+                if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     const barContainer = document.createElement('div');
                     barContainer.className = 'progress-bar-container';
                     
