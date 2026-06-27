@@ -127,7 +127,7 @@
         .chart-container {
             position: relative;
             margin: 10px auto 20px auto;
-            height: 260px;
+            height: 280px;
             width: 100%;
             max-width: 550px;
         }
@@ -533,10 +533,29 @@
         updateUI();
     }
 
-    function renderChart(type, labels, data, chartTitle, colorHex) {
+    function renderChart(type, labels, data, chartTitle, colorHex, customOptions = {}) {
         if (myChart) myChart.destroy();
         
         const ctx = document.getElementById('expenseChart').getContext('2d');
+        
+        const baseOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { 
+                    display: type === 'doughnut', 
+                    position: 'bottom', 
+                    labels: { boxWidth: 12, font: { size: 10 } } 
+                }
+            },
+            scales: (type === 'bar') ? { 
+                y: { beginAtZero: true, ticks: { callback: value => value + ' €' } } 
+            } : {}
+        };
+
+        // Mesclar opções customizadas (ex: para o gráfico de barras horizontais)
+        const finalOptions = Object.assign({}, baseOptions, customOptions);
+
         myChart = new Chart(ctx, {
             type: type,
             data: {
@@ -549,14 +568,7 @@
                     borderColor: '#cbd5e1'
                 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: type === 'doughnut', position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
-                },
-                scales: type === 'bar' ? { y: { beginAtZero: true, ticks: { callback: value => value + ' €' } } } : {}
-            }
+            options: finalOptions
         });
     }
 
@@ -600,7 +612,7 @@
                 opt.value = year;
                 opt.textContent = year;
                 if (year === selectedYearValue) opt.selected = true;
-                sel.appendChild(opt);
+                sel.appendChild(year);
             });
             navigationControls.appendChild(lbl);
             navigationControls.appendChild(sel);
@@ -704,7 +716,6 @@
                 let budgetText = '';
                 let pct = 0;
                 
-                // Só aplica orçamento se NÃO estivermos no modo 'sempre'
                 if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     pct = (spentInPeriod / adjustedLimit) * 100;
                     budgetText = `<span style="font-size: 0.75rem; font-weight: normal; margin-left: 4px;">(Teto: ${adjustedLimit.toFixed(1)}€ | ${pct.toFixed(0)}%)</span>`;
@@ -713,7 +724,6 @@
                 tag.innerHTML = `<span>${cat}${budgetText}</span> <span style="font-weight: bold;">${spentInPeriod.toFixed(2)} €</span>`;
                 rowWrapper.appendChild(tag);
 
-                // Desenha a barra apenas se não estivermos no separador 'sempre' e houver limite
                 if (currentPeriod !== 'sempre' && adjustedLimit > 0) {
                     const barContainer = document.createElement('div');
                     barContainer.className = 'progress-bar-container';
@@ -765,6 +775,34 @@
             const sortedYears = Object.keys(yearlyTotals).sort();
             const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Histórico de Anos" : `Gastos em ${selectedChartCat}`;
             renderChart('bar', sortedYears, sortedYears.map(y => yearlyTotals[y]), chartLabelText, "#10b981");
+
+        } else if (currentPeriod === 'sempre') {
+            // ALTERAÇÃO: Gráfico de Barras Horizontais no separador "Sempre"
+            // Ordena os dados do maior gasto para o menor para manter o gráfico coerente
+            const sortedActiveCats = Object.keys(categoryPeriodTotals).sort((a, b) => categoryPeriodTotals[b] - categoryPeriodTotals[a]);
+            const chartData = sortedActiveCats.map(cat => categoryPeriodTotals[cat]);
+            const chartColors = sortedActiveCats.map(cat => categoryColors[cat]?.hex || "#94a3b8");
+            
+            const chartLabelText = selectedChartCat === "TOTAL_GERAL" ? "Gastos Totais Acumulados" : `Filtro: ${selectedChartCat}`;
+            
+            // Filtra caso o utilizador selecione uma categoria específica na dropdown superior
+            let finalLabels = sortedActiveCats;
+            let finalData = chartData;
+            let finalColors = chartColors;
+
+            if (selectedChartCat !== "TOTAL_GERAL") {
+                finalLabels = [selectedChartCat];
+                finalData = [categoryPeriodTotals[selectedChartCat] || 0];
+                finalColors = [categoryColors[selectedChartCat]?.hex || "#94a3b8"];
+            }
+
+            renderChart('bar', finalLabels, finalData, chartLabelText, finalColors, {
+                indexAxis: 'y', // Isto transforma as barras verticais em horizontais
+                scales: {
+                    x: { beginAtZero: true, ticks: { callback: value => value + ' €' } },
+                    y: { ticks: { font: { size: 11 } } }
+                }
+            });
 
         } else {
             const chartLabels = Object.keys(categoryPeriodTotals);
