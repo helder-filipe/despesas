@@ -506,6 +506,11 @@
         
         <div class="search-container">
             <input type="text" id="historySearchInput" placeholder="🔍 Pesquisar por descrição..." oninput="updateUI()">
+    
+            <select id="historyCategoryFilter" onchange="updateUI()" style="padding: 8px; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);">
+                <option value="TODAS">Todas as Categorias</option>
+            </select>
+    
             <button class="btn-clear-search" onclick="clearSearchFilter()">Limpar</button>
         </div>
 
@@ -582,7 +587,8 @@
     });
 
     function clearSearchFilter() {
-        historySearchInput.value = '';
+        document.getElementById('historySearchInput').value = '';
+        document.getElementById('historyCategoryFilter').value = 'TODAS';
         updateUI();
     }
 
@@ -646,11 +652,20 @@
     }
 
     function initChartFilterOptions() {
+        const historyCatFilter = document.getElementById('historyCategoryFilter');
+        
         categoriesList.forEach(cat => {
-            const opt = document.createElement('option');
-            opt.value = cat;
-            opt.textContent = `${cat}`;
-            chartCategorySelect.appendChild(opt);
+            // Preenche o filtro do gráfico
+            const opt1 = document.createElement('option');
+            opt1.value = cat;
+            opt1.textContent = cat;
+            chartCategorySelect.appendChild(opt1);
+            
+            // Preenche o novo filtro da listagem histórica
+            const opt2 = document.createElement('option');
+            opt2.value = cat;
+            opt2.textContent = cat;
+            historyCatFilter.appendChild(opt2);
         });
     }
 
@@ -836,9 +851,12 @@
         const categoryPeriodTotals = {};
         filteredExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+        // 1. Filtragem para a listagem histórica (Usa o novo filtro + a pesquisa por texto)
+        const selectedHistoryCat = document.getElementById('historyCategoryFilter').value;
         let displayExpenses = filteredExpenses;
-        if (selectedChartCat !== "TOTAL_GERAL") {
-            displayExpenses = displayExpenses.filter(exp => exp.category === selectedChartCat);
+        
+        if (selectedHistoryCat !== "TODAS") {
+            displayExpenses = displayExpenses.filter(exp => exp.category === selectedHistoryCat);
         }
         if (searchText !== '') {
             displayExpenses = displayExpenses.filter(exp => exp.description && exp.description.toLowerCase().includes(searchText));
